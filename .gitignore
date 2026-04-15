@@ -3,4 +3,5 @@ android/build/
 ios/build/
 .expo/
 dist/
+# mobile/
 *.log
