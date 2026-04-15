@@ -1,0 +1,258 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id          String   @id @default(uuid())
+  name        String
+  email       String   @unique
+  phone       String?
+  address     String?
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  plan        String   @default("starter")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  customers   Customer[]
+  vehicles    Vehicle[]
+  jobCards    JobCard[]
+  bookings    Booking[]
+  estimates   Estimate[]
+  invoices    Invoice[]
+  payments    Payment[]
+
+  @@map("companies")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  email       String
+  phone       String?
+  role        Role     @default(MECHANIC)
+  passwordHash String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  assignedJobs JobCard[] @relation("AssignedMechanic")
+
+  @@unique([companyId, email])
+  @@map("users")
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  email       String?
+  phone       String
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  vehicles    Vehicle[]
+  bookings    Booking[]
+
+  @@map("customers")
+}
+
+model Vehicle {
+  id           String   @id @default(uuid())
+  companyId    String
+  customerId   String
+  make         String
+  model        String
+  year         Int
+  licensePlate String
+  vin          String?
+  color        String?
+  mileage      Int?
+  imageUrl     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company      Company  @relation(fields: [companyId], references: [id])
+  customer     Customer @relation(fields: [customerId], references: [id])
+  jobCards     JobCard[]
+  bookings     Booking[]
+
+  @@map("vehicles")
+}
+
+model JobCard {
+  id           String      @id @default(uuid())
+  companyId    String
+  vehicleId    String
+  mechanicId   String?
+  status       JobStatus   @default(PENDING)
+  priority     Priority    @default(NORMAL)
+  description  String?
+  notes        String?
+  inDate       DateTime    @default(now())
+  outDate      DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  company      Company     @relation(fields: [companyId], references: [id])
+  vehicle      Vehicle     @relation(fields: [vehicleId], references: [id])
+  mechanic     User?       @relation("AssignedMechanic", fields: [mechanicId], references: [id])
+  inspections  Inspection[]
+  estimates    Estimate[]
+  invoices     Invoice[]
+
+  @@map("job_cards")
+}
+
+model Inspection {
+  id          String   @id @default(uuid())
+  jobCardId   String
+  checkItem   String
+  status      String
+  notes       String?
+  photoUrls   String[]
+  createdAt   DateTime @default(now())
+
+  jobCard     JobCard  @relation(fields: [jobCardId], references: [id])
+
+  @@map("inspections")
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  companyId   String
+  customerId  String
+  vehicleId   String
+  scheduledAt DateTime
+  serviceType String
+  status      BookingStatus @default(PENDING)
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  customer    Customer @relation(fields: [customerId], references: [id])
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+
+  @@map("bookings")
+}
+
+model Estimate {
+  id          String         @id @default(uuid())
+  companyId   String
+  jobCardId   String
+  items       Json
+  subtotal    Float
+  tax         Float
+  total       Float
+  status      EstimateStatus @default(DRAFT)
+  approvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  jobCard     JobCard  @relation(fields: [jobCardId], references: [id])
+
+  @@map("estimates")
+}
+
+model Invoice {
+  id          String        @id @default(uuid())
+  companyId   String
+  jobCardId   String
+  items       Json
+  subtotal    Float
+  tax         Float
+  total       Float
+  status      InvoiceStatus @default(UNPAID)
+  dueDate     DateTime?
+  pdfUrl      String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  jobCard     JobCard   @relation(fields: [jobCardId], references: [id])
+  payments    Payment[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  companyId   String
+  invoiceId   String
+  amount      Float
+  method      PaymentMethod
+  reference   String?
+  paidAt      DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  MECHANIC
+  RECEPTIONIST
+}
+
+enum JobStatus {
+  PENDING
+  IN_PROGRESS
+  WAITING_PARTS
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum EstimateStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  BANK_TRANSFER
+  OTHER
+}

@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "GarageOS",
+    "slug": "garageos",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./mobile/assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./mobile/assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F9FC"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.garageos.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./mobile/assets/adaptive-icon.png",
+        "backgroundColor": "#F7F9FC"
+      },
+      "package": "com.garageos.app"
+    },
+    "plugins": [
+      "expo-font"
+    ],
+    "scheme": "garageos"
+  }
+}

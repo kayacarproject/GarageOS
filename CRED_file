@@ -1,0 +1,5 @@
+Role	     Mobile	      Email	                    Password	    Company ID
+Owner	     9876543210	  owner@garage.com	        password123	    c1
+Manager	     9876543211	  manager@garage.com	    password123	    c1
+Mechanic	 9876543212	  mechanic@garage.com	    password123	    c1
+Receptionist 9876543213	  reception@garage.com	    password123	    c1
