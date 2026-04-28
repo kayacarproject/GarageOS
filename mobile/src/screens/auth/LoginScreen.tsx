@@ -5,8 +5,7 @@ import {
   TextInput as RNTextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../../stores/authStore';
-import { authService } from '../../services/authService';
+import { useAuth } from '../../context/AuthContext';
 import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { COLORS, SPACING, FONT, RADIUS, SHADOW } from '../../config/theme';
@@ -14,11 +13,11 @@ import { CREDENTIALS } from '../../config/credentials';
 import env from '../../config/env';
 
 export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const [mobile, setMobile]     = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
+  const [mobile, setMobile]       = useState('');
+  const [password, setPassword]   = useState('');
+  const [error, setError]         = useState('');
   const [showCreds, setShowCreds] = useState(false);
-  const { login, setLoading, isLoading } = useAuthStore();
+  const { login, isLoading }      = useAuth();
 
   const passwordRef = useRef<RNTextInput>(null);
 
@@ -27,16 +26,11 @@ export const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     if (!mobile.trim()) { setError('Mobile number is required'); return; }
     if (!password)      { setError('Password is required'); return; }
 
-    setLoading(true);
     try {
-      const result = await authService.login(mobile.trim(), password);
-      login(result.user, result.company, result.token);
-      // Navigation happens automatically — AppNavigator switches to role tabs
-      // when isAuthenticated becomes true
+      await login(mobile.trim(), password);
+      // Navigation handled automatically by AppNavigator when isAuthenticated flips
     } catch (e: any) {
-      setError(e.message || 'Invalid credentials. Please try again.');
-    } finally {
-      setLoading(false);
+      setError(e.message ?? 'Something went wrong. Please try again.');
     }
   };
 

@@ -3,7 +3,7 @@ import axios, {
   AxiosRequestConfig,
   InternalAxiosRequestConfig,
 } from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { StorageService } from './storage';
 import env from '../config/env';
 
 // ─── Navigation ref (set from AppNavigator on mount) ─────────────────────────
@@ -49,7 +49,7 @@ const api = axios.create({
 
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await StorageService.getAccessToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
 
     if (__DEV__) {
@@ -79,7 +79,7 @@ api.interceptors.response.use(
 
     // ── 401: clear token + redirect to login ──────────────────────────────────
     if (status === 401) {
-      await AsyncStorage.multiRemove(['auth_token', 'auth_user']);
+      await StorageService.clearAuth();
       _navigateToLogin?.();
       return Promise.reject(toApiError(error));
     }

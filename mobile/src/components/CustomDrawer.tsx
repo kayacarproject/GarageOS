@@ -43,6 +43,7 @@ const MENU_ITEMS: MenuItem[] = [
   { label: 'Mechanics',     screen: 'Mechanics',      icon: 'people-circle-outline',    activeIcon: 'people-circle',    roles: ['OWNER', 'MANAGER', 'SUPER_ADMIN'] },
   { label: 'Bookings',      screen: 'Bookings',       icon: 'calendar-outline',         activeIcon: 'calendar',         roles: ['OWNER', 'MANAGER', 'RECEPTIONIST', 'SUPER_ADMIN'] },
   { label: 'Revenue',       screen: 'Revenue',        icon: 'cash-outline',             activeIcon: 'cash',             roles: ['OWNER', 'SUPER_ADMIN'] },
+  { label: 'Service Pricing', screen: 'ManageServices', icon: 'pricetag-outline',         activeIcon: 'pricetag',         roles: ['OWNER', 'SUPER_ADMIN'] },
   { label: 'Approvals',     screen: 'Approvals',      icon: 'checkmark-circle-outline', activeIcon: 'checkmark-circle', roles: ['OWNER', 'MANAGER', 'SUPER_ADMIN'] },
   { label: 'Notifications', screen: 'Notifications',  icon: 'notifications-outline',    activeIcon: 'notifications' },
   { label: 'Profile',       screen: 'Profile',        icon: 'person-outline',           activeIcon: 'person' },

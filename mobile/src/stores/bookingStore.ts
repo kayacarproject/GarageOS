@@ -1,83 +1,48 @@
 import { create } from 'zustand';
-import { Booking, BookingStatus, CreateBookingPayload } from '../types';
-import { bookingService } from '../services/bookingService';
+import type { Booking, BookingStatus } from '../types';
+import { bookingApi, CreateHanaBookingPayload } from '../api/bookingApi';
 
 interface BookingState {
-  bookings: Booking[];
-  bookingsByDate: Booking[];
-  pendingForCustomer: Booking[];
+  bookings:  Booking[];
   isLoading: boolean;
-  error: string | null;
 
-  fetchAll: () => Promise<void>;
-  fetchByDate: (date: string) => Promise<void>;
-  create: (payload: CreateBookingPayload & { created_by: string }) => Promise<Booking>;
-  update: (id: string, payload: Partial<Booking>) => Promise<void>;
+  fetchAll:     () => Promise<void>;
+  fetchByDate:  (date: string) => Promise<Booking[]>;
+  create:       (payload: CreateHanaBookingPayload) => Promise<Booking>;
   updateStatus: (id: string, status: BookingStatus) => Promise<void>;
-  linkToJobCard: (bookingId: string, jobCardId: string) => Promise<void>;
-  getPendingForCustomer: (customerId: string) => Promise<void>;
+  update:       (id: string, payload: Partial<CreateHanaBookingPayload>) => Promise<void>;
 }
 
-export const useBookingStore = create<BookingState>((set, get) => ({
-  bookings: [],
-  bookingsByDate: [],
-  pendingForCustomer: [],
+export const useBookingStore = create<BookingState>((set) => ({
+  bookings:  [],
   isLoading: false,
-  error: null,
 
   fetchAll: async () => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true });
     try {
-      const bookings = await bookingService.getAll();
+      const bookings = await bookingApi.getAll();
       set({ bookings });
-    } catch (e: any) {
-      set({ error: e.message });
     } finally {
       set({ isLoading: false });
     }
   },
 
-  fetchByDate: async (date) => {
-    set({ isLoading: true, error: null });
-    try {
-      const bookingsByDate = await bookingService.getByDate(date);
-      set({ bookingsByDate });
-    } finally {
-      set({ isLoading: false });
-    }
-  },
+  fetchByDate: (date) => bookingApi.getByDate(date),
 
   create: async (payload) => {
-    const newB = await bookingService.create(payload);
-    set(s => ({ bookings: [newB, ...s.bookings] }));
-    return newB;
-  },
-
-  update: async (id, payload) => {
-    const updated = await bookingService.update(id, payload as any);
-    set(s => ({
-      bookings: s.bookings.map(b => b.id === id ? updated : b),
-      bookingsByDate: s.bookingsByDate.map(b => b.id === id ? updated : b),
-    }));
+    const newBooking = await bookingApi.create(payload);
+    set(s => ({ bookings: [newBooking, ...s.bookings] }));
+    return newBooking;
   },
 
   updateStatus: async (id, status) => {
-    const updated = await bookingService.updateStatus(id, status);
+    await bookingApi.updateStatus(id, status);
     set(s => ({
-      bookings: s.bookings.map(b => b.id === id ? updated : b),
-      bookingsByDate: s.bookingsByDate.map(b => b.id === id ? updated : b),
+      bookings: s.bookings.map(b => b.id === id ? { ...b, status } : b),
     }));
   },
 
-  linkToJobCard: async (bookingId, jobCardId) => {
-    const updated = await bookingService.linkToJobCard(bookingId, jobCardId);
-    set(s => ({
-      bookings: s.bookings.map(b => b.id === bookingId ? updated : b),
-    }));
-  },
-
-  getPendingForCustomer: async (customerId) => {
-    const pendingForCustomer = await bookingService.getPendingForCustomer(customerId);
-    set({ pendingForCustomer });
+  update: async (id, payload) => {
+    await bookingApi.update(id, payload);
   },
 }));

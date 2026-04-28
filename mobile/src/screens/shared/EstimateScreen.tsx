@@ -5,12 +5,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
-import { useJobCardStore } from '../../stores/jobCardStore';
-import { estimateService } from '../../services/estimateService';
-import { dummyJobCards } from '../../dummy/jobCards';
-import { dummyCustomers } from '../../dummy/customers';
-import { canTransition } from '../../constants/jobCardLifecycle';
-import type { Estimate, EstimateItem } from '../../types';
+import { estimateApi, HanaEstimate, HanaEstimateItem } from '../../api/estimateApi';
+import { jobcardApi } from '../../api/jobcardApi';
 import { shareEstimateWhatsApp, shareEstimatePdf } from '../../utils/estimatePdf';
 import { COLORS, SPACING, FONT, RADIUS, SHADOW } from '../../config/theme';
 
@@ -41,6 +37,12 @@ function toWords(n: number): string {
   return result + ' only';
 }
 
+// ─── Local item type (UI form state) ─────────────────────────────────────────
+
+interface FormItem extends HanaEstimateItem {
+  _key: string; // stable react key
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const TableHeader: React.FC = () => (
@@ -55,7 +57,7 @@ const TableHeader: React.FC = () => (
   </View>
 );
 
-const ReadOnlyRow: React.FC<{ item: EstimateItem; idx: number }> = ({ item, idx }) => (
+const ReadOnlyRow: React.FC<{ item: FormItem; idx: number }> = ({ item, idx }) => (
   <View style={[t.dataRow, idx % 2 === 1 && t.dataRowAlt]}>
     <Text style={[t.td, t.colNum]}>{idx + 1}</Text>
     <Text style={[t.td, t.colName]} numberOfLines={2}>{item.name}</Text>
@@ -68,9 +70,9 @@ const ReadOnlyRow: React.FC<{ item: EstimateItem; idx: number }> = ({ item, idx 
 );
 
 const EditableRow: React.FC<{
-  item: EstimateItem;
+  item: FormItem;
   idx: number;
-  onChange: (idx: number, field: keyof EstimateItem, value: any) => void;
+  onChange: (idx: number, field: keyof FormItem, value: any) => void;
   onRemove: (idx: number) => void;
 }> = ({ item, idx, onChange, onRemove }) => (
   <View style={[t.dataRow, t.editRow, idx % 2 === 1 && t.dataRowAlt]}>
@@ -126,36 +128,71 @@ const EditableRow: React.FC<{
 export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { jobCardId } = route.params;
   const { canApproveEstimate, company, user } = useAuthStore();
-  const { updateStatus, selected, fetchById } = useJobCardStore();
 
-  const jobCard  = dummyJobCards.find(j => j.id === jobCardId);
-  const customer = dummyCustomers.find(c => c.id === jobCard?.customer_id);
-
-  const [estimate, setEstimate]     = useState<Estimate | null>(null);
+  const [estimate, setEstimate]           = useState<HanaEstimate | null>(null);
+  const [vehicleName, setVehicleName]     = useState('—');
   const [loadingEstimate, setLoadingEstimate] = useState(true);
-  const [items, setItems]           = useState<EstimateItem[]>([]);
-  const [discount, setDiscount]     = useState(0);
-  const [notes, setNotes]           = useState('');
-  const [saving, setSaving]         = useState(false);
-  const [approving, setApproving]   = useState(false);
-  const [rejecting, setRejecting]   = useState(false);
-  const [sharing, setSharing]       = useState(false);
+  const [items, setItems]                 = useState<FormItem[]>([]);
+  const [discount, setDiscount]           = useState(0);
+  const [notes, setNotes]                 = useState('');
+  const [saving, setSaving]               = useState(false);
+  const [approving, setApproving]         = useState(false);
+  const [rejecting, setRejecting]         = useState(false);
+  const [sharing, setSharing]             = useState(false);
 
-  // Load the latest estimate for this job card on mount
+  // Load estimate + vehicle info
   useEffect(() => {
     (async () => {
       setLoadingEstimate(true);
       try {
-        const all = await estimateService.getByJobCard(jobCardId);
-        // Show the latest non-superseded estimate
-        const active = all
+        const [allEstimates, jobCard] = await Promise.all([
+          estimateApi.getByJobCard(jobCardId),
+          jobcardApi.getById(jobCardId).catch(() => null),
+        ]);
+
+        if (jobCard) {
+          setVehicleName(
+            [jobCard.brand, jobCard.model, jobCard.registrationNumber]
+              .filter(Boolean).join(' ') || '—'
+          );
+        }
+
+        const active = allEstimates
           .filter(e => e.status !== 'superseded')
-          .sort((a, b) => b.version - a.version)[0] ?? null;
+          .sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0] ?? null;
+
         if (active) {
           setEstimate(active);
-          setItems(active.items ?? []);
+          setItems((active.items ?? []).map((item, i) => ({ ...item, _key: `${i}-${Date.now()}` })));
           setDiscount(active.discount ?? 0);
           setNotes(active.notes ?? '');
+        } else if (jobCard?.basePrice) {
+          // Auto-fill from jobcard pricing snapshot when no estimate exists yet
+          const autoItems: FormItem[] = [
+            {
+              _key:       'auto-service',
+              name:       jobCard.serviceName ?? jobCard.workType ?? 'Service Charge',
+              hsn_sac:    '',
+              type:       'labour',
+              quantity:   1,
+              unit:       'job',
+              unit_price: jobCard.basePrice,
+              amount:     jobCard.basePrice,
+            },
+          ];
+          if ((jobCard.taxAmount ?? 0) > 0) {
+            autoItems.push({
+              _key:       'auto-tax',
+              name:       `GST ${jobCard.taxPercent ?? 18}%`,
+              hsn_sac:    '',
+              type:       'labour',
+              quantity:   1,
+              unit:       'job',
+              unit_price: jobCard.taxAmount!,
+              amount:     jobCard.taxAmount!,
+            });
+          }
+          setItems(autoItems);
         }
       } finally {
         setLoadingEstimate(false);
@@ -163,23 +200,20 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
     })();
   }, [jobCardId]);
 
-  const isApproved = estimate?.status === 'approved';
-  const isRejected = estimate?.status === 'rejected';
-  // Approved or rejected estimates are read-only; draft/sent are editable
-  const isReadOnly = isApproved || isRejected;
+  const isApproved        = estimate?.status === 'approved';
+  const isRejected        = estimate?.status === 'rejected';
+  const isPendingApproval = estimate?.status === 'pending_approval';
+  // Read-only for everyone once submitted; owners can still quick-approve inline
+  const isReadOnly = isApproved || isRejected || isPendingApproval;
 
-  const subtotal = items.reduce((s, i) => s + i.amount, 0);
-  const total    = subtotal - discount;
-  const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+  const subtotal  = items.reduce((s, i) => s + i.amount, 0);
+  const total     = subtotal - discount;
+  const totalQty  = items.reduce((s, i) => s + i.quantity, 0);
 
-  const estimateNo   = estimate?.id?.replace('est', '') ?? '—';
-  const estimateDate = estimate?.created_at
-    ? new Date(estimate.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const estimateNo   = estimate?._id?.slice(-8).toUpperCase() ?? '—';
+  const estimateDate = estimate?.createdAt
+    ? new Date(estimate.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
-  const vehicleName = jobCard?.vehicle
-    ? `${(jobCard.vehicle as any).brand ?? ''} ${jobCard.vehicle.model ?? ''} ${(jobCard.vehicle as any).registration_number ?? ''}`.trim()
-    : '—';
 
   const getPdfData = () => ({
     estimateNo,
@@ -187,8 +221,8 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
     companyName:    company?.name ?? 'Garage',
     companyEmail:   company?.email,
     vehicleName,
-    customerName:   customer?.name ?? '—',
-    customerMobile: customer?.mobile,
+    customerName:   '—',
+    customerMobile: undefined as string | undefined,
     items,
     subtotal,
     discount,
@@ -198,33 +232,26 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
 
   const handleShareWhatsApp = async () => {
     setSharing(true);
-    try {
-      await shareEstimateWhatsApp(getPdfData(), () => {});
-    } finally {
-      setSharing(false);
-    }
+    try { await shareEstimateWhatsApp(getPdfData(), () => {}); }
+    finally { setSharing(false); }
   };
 
   const handleSharePdf = async () => {
     setSharing(true);
-    try {
-      await shareEstimatePdf(getPdfData());
-    } finally {
-      setSharing(false);
-    }
+    try { await shareEstimatePdf(getPdfData()); }
+    finally { setSharing(false); }
   };
 
   const addItem = () => {
     setItems(prev => [...prev, {
-      id: Date.now().toString(),
-      estimate_id: estimate?.id ?? '',
+      _key: Date.now().toString(),
       name: '', hsn_sac: '', type: 'part',
       quantity: 1, unit: 'Nos',
       unit_price: 0, amount: 0,
     }]);
   };
 
-  const updateItem = (idx: number, field: keyof EstimateItem, value: any) => {
+  const updateItem = (idx: number, field: keyof FormItem, value: any) => {
     setItems(prev => {
       const updated = [...prev];
       updated[idx] = { ...updated[idx], [field]: value };
@@ -246,33 +273,119 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
     }
     setSaving(true);
     try {
-      const saved = await estimateService.create({
-        job_card_id: jobCardId,
-        company_id: company?.id ?? 'c1',
-        created_by: user?.id ?? 'unknown',
-        items: items.map(i => ({
-          name: i.name, hsn_sac: i.hsn_sac, type: i.type,
-          quantity: i.quantity, unit: i.unit,
-          unit_price: i.unit_price, gst_percent: i.gst_percent,
-        })),
-        discount,
-        notes: notes.trim() || undefined,
-      });
-      setEstimate(saved);
-      setItems(saved.items);
+      const cleanItems = items.map(({ _key, ...rest }) => rest);
+      const sub   = cleanItems.reduce((s, i) => s + i.amount, 0);
+      const total = sub - discount;
+      const nextVersion = (estimate?.version ?? 0) + 1;
 
-      // Advance job to estimate_created if allowed
-      const currentStatus = jobCard?.status;
-      if (currentStatus && canTransition(currentStatus, 'estimate_created')) {
-        await updateStatus(jobCardId, 'estimate_created');
+      if (estimate) {
+        // Update existing draft
+        await estimateApi.update(estimate._id, {
+          items: cleanItems, subtotal: sub, discount, total, notes: notes.trim() || undefined,
+        });
+        setEstimate(prev => prev ? { ...prev, items: cleanItems, subtotal: sub, discount, total, notes } : prev);
+        Alert.alert('Saved', `Estimate v${estimate.version} updated.`);
+      } else {
+        // Create new draft
+        const saved = await estimateApi.create({
+          jobcardId:  jobCardId,
+          items:      cleanItems,
+          subtotal:   sub,
+          discount,
+          total,
+          notes:      notes.trim() || undefined,
+          version:    nextVersion,
+          status:     'draft',
+          createdBy:  user?.legalname ?? user?.name ?? user?.id ?? '',
+        });
+        setEstimate(saved);
+        setItems((saved.items ?? []).map((item, i) => ({ ...item, _key: `${i}-${Date.now()}` })));
+        Alert.alert('Saved', `Estimate v${saved.version} saved.`);
       }
-
-      Alert.alert('Saved', `Estimate v${saved.version} saved.`);
     } catch (e: any) {
       Alert.alert('Save Failed', e.message ?? 'Could not save estimate.');
     } finally {
       setSaving(false);
     }
+  };
+
+  // ── Send for Approval ──────────────────────────────────────────────────────
+  // Works whether a draft already exists or not.
+  // If no draft: creates the estimate + submits in one API call.
+  // If draft exists: saves latest items then flips status.
+
+  const handleSendForApproval = async () => {
+    if (items.length === 0) {
+      Alert.alert('No Items', 'Add at least one item before sending for approval.');
+      return;
+    }
+    Alert.alert(
+      'Send for Approval',
+      `Send this estimate (₹ ${total.toLocaleString('en-IN')}) to the owner for review?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              const cleanItems = items.map(({ _key, ...rest }) => rest);
+              const sub = cleanItems.reduce((s, i) => s + i.amount, 0);
+              const tot = sub - discount;
+
+              if (estimate) {
+                // Save latest items + flip status atomically
+                await estimateApi.sendForApproval(estimate._id, {
+                  items:              cleanItems,
+                  subtotal:           sub,
+                  discount,
+                  total:              tot,
+                  notes:              notes.trim() || undefined,
+                  version:            estimate.version ?? 1,
+                  createdBy:          user?.legalname ?? user?.name ?? user?.id,
+                  requestedByRole:    user?.role ?? 'MECHANIC',
+                  requestedByUserId:  user?.id,
+                });
+                // Also update jobcard so mechanic dashboard shows 'awaiting_approval'
+                await jobcardApi.updateJobCard(jobCardId, {
+                  approvalStatus: 'pending',
+                  status:         'awaiting_approval',
+                });
+                setEstimate(prev =>
+                  prev ? { ...prev, items: cleanItems, subtotal: sub, discount, total: tot, status: 'pending_approval' } : prev,
+                );
+              } else {
+                // No draft yet — create directly as pending_approval
+                const saved = await estimateApi.create({
+                  jobcardId:         jobCardId,
+                  items:             cleanItems,
+                  subtotal:          sub,
+                  discount,
+                  total:             tot,
+                  notes:             notes.trim() || undefined,
+                  version:           1,
+                  status:            'pending_approval',
+                  createdBy:         user?.legalname ?? user?.name ?? user?.id ?? '',
+                  sentForApprovalAt: new Date().toISOString(),
+                });
+                setEstimate(saved);
+                setItems((saved.items ?? []).map((item, i) => ({ ...item, _key: `${i}-${Date.now()}` })));
+              }
+
+              Alert.alert(
+                'Sent for Approval ✓',
+                'Estimate has been sent to the owner for review.',
+                [{ text: 'OK', onPress: () => navigation.goBack() }],
+              );
+            } catch (e: any) {
+              Alert.alert('Failed', e.message ?? 'Could not send estimate.');
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   // ── Approve ────────────────────────────────────────────────────────────────
@@ -289,19 +402,14 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
           onPress: async () => {
             setApproving(true);
             try {
-              const updated = await estimateService.approve(estimate.id);
-              setEstimate(updated);
-
-              // Advance job to estimate_approved
-              const currentStatus = jobCard?.status;
-              if (currentStatus && canTransition(currentStatus, 'estimate_approved')) {
-                await updateStatus(jobCardId, 'estimate_approved');
-              }
-              await fetchById(jobCardId);
-
+              await estimateApi.updateStatus(estimate._id, 'approved', {
+                approvedBy: user?.id ?? '',
+                approvedAt: new Date().toISOString(),
+              });
+              setEstimate(prev => prev ? { ...prev, status: 'approved' } : prev);
               Alert.alert(
                 'Estimate Approved ✓',
-                'Estimate approved. Manager can now assign a mechanic.',
+                'Estimate approved. You can now generate an invoice.',
                 [{ text: 'OK', onPress: () => navigation.goBack() }],
               );
             } catch (e: any) {
@@ -329,9 +437,7 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
           onPress: async () => {
             setRejecting(true);
             try {
-              // Mark current as rejected so a new draft can be created
-              await estimateService.updateStatus(estimate.id, 'rejected');
-              // Reset form to editable blank
+              await estimateApi.updateStatus(estimate._id, 'rejected');
               setEstimate(null);
               setItems([]);
               setDiscount(0);
@@ -358,7 +464,7 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
                   style: 'destructive',
                   onPress: async () => {
                     try {
-                      await updateStatus(jobCardId, 'cancelled');
+                      await jobcardApi.updateStatus(jobCardId, 'cancelled');
                       Alert.alert('Job Cancelled', 'This job has been cancelled.', [
                         { text: 'OK', onPress: () => navigation.navigate('Jobs') },
                       ]);
@@ -392,11 +498,25 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
     <View style={s.container}>
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
+        {/* Pending approval banner */}
+        {isPendingApproval && (
+          <View style={s.pendingBanner}>
+            <Ionicons name="time-outline" size={18} color={COLORS.warning} />
+            <Text style={s.pendingText}>
+              Submitted for owner approval — awaiting review.
+            </Text>
+          </View>
+        )}
+
         {/* Rejected banner */}
         {isRejected && (
           <View style={s.rejectedBanner}>
             <Ionicons name="close-circle-outline" size={18} color={COLORS.danger} />
-            <Text style={s.rejectedText}>This estimate was rejected. Create a revised estimate.</Text>
+            <Text style={s.rejectedText}>
+              {estimate?.rejectedReason
+                ? `Rejected: ${estimate.rejectedReason}`
+                : 'This estimate was rejected. Create a revised estimate.'}
+            </Text>
           </View>
         )}
 
@@ -416,7 +536,6 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
             <View style={s.metaLeft}>
               <Text style={s.metaHeading}>Estimate For:</Text>
               <Text style={s.metaValue}>{vehicleName}</Text>
-              {customer && <Text style={s.metaCustomer}>{customer.name}</Text>}
             </View>
             <View style={s.metaRight}>
               <Text style={s.metaHeading}>Estimate Details:</Text>
@@ -425,6 +544,12 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
                   <Text style={s.metaValue}>No: {estimateNo}</Text>
                   <Text style={s.metaValue}>v{estimate.version} · {estimateDate}</Text>
                 </>
+              )}
+              {isPendingApproval && (
+                <View style={[s.approvedBadge, { backgroundColor: COLORS.warningLight }]}>
+                  <Ionicons name="time" size={12} color={COLORS.warning} />
+                  <Text style={[s.approvedText, { color: COLORS.warning }]}>PENDING APPROVAL</Text>
+                </View>
               )}
               {isApproved && (
                 <View style={s.approvedBadge}>
@@ -446,8 +571,8 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
             <TableHeader />
             {items.map((item, idx) =>
               isReadOnly
-                ? <ReadOnlyRow key={item.id} item={item} idx={idx} />
-                : <EditableRow key={item.id} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} />
+                ? <ReadOnlyRow key={item._key} item={item} idx={idx} />
+                : <EditableRow key={item._key} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} />
             )}
             <View style={t.totalQtyRow}>
               <Text style={[t.td, t.colNum]} />
@@ -543,11 +668,20 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
         </View>
       </ScrollView>
 
-      {/* Footer actions */}
+      {/* ════════════════════════════════════════════════════════════════════
+          FOOTER — buttons change based on ROLE + STATUS
+          ════════════════════════════════════════════════════════════════════ */}
       <View style={s.footer}>
-        {!isApproved && !isRejected && (
+
+        {/* ─────────────────────────────────────────────────────────────────
+            EDITABLE STATE  (draft / revised / no estimate yet)
+            OWNER:      [Save Draft]  [Approve]  [Reject]
+            MECHANIC:   [Save Draft]  [Send for Approval]
+            ───────────────────────────────────────────────────────────────── */}
+        {(estimate == null || estimate.status === 'draft' || estimate.status === 'revised') && (
           <View style={s.footerBtnRow}>
-            {/* Save draft */}
+
+            {/* Save Draft — shown to everyone while editing */}
             <TouchableOpacity
               style={[s.footerBtn, s.saveBtn]}
               onPress={handleSave}
@@ -556,60 +690,124 @@ export const EstimateScreen: React.FC<{ route: any; navigation: any }> = ({ rout
             >
               {saving
                 ? <ActivityIndicator size="small" color={COLORS.primary} />
-                : <Ionicons name="save-outline" size={18} color={COLORS.primary} />
+                : <Ionicons name="save-outline" size={16} color={COLORS.primary} />
               }
-              <Text style={s.saveBtnText}>{saving ? 'Saving...' : 'Save Draft'}</Text>
+              <Text style={s.saveBtnText}>Save Draft</Text>
             </TouchableOpacity>
 
-            {/* Approve — owner/manager only */}
-            {canApproveEstimate() && estimate && (
+            {/* ── MECHANIC / RECEPTIONIST: Send for Approval ── */}
+            {!canApproveEstimate() && (
               <TouchableOpacity
-                style={[s.footerBtn, s.approveBtn]}
-                onPress={handleApprove}
-                disabled={approving || saving}
+                style={[s.footerBtn, s.sendBtn]}
+                onPress={handleSendForApproval}
+                disabled={saving}
                 activeOpacity={0.85}
               >
-                {approving
+                {saving
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                  : <Ionicons name="send-outline" size={16} color="#fff" />
                 }
-                <Text style={s.approveBtnText}>{approving ? 'Approving...' : 'Approve'}</Text>
+                <Text style={s.sendBtnText}>Send for Approval</Text>
               </TouchableOpacity>
             )}
 
-            {/* Reject — owner/manager only */}
+            {/* ── OWNER / MANAGER: Approve + Reject (direct, no queue) ── */}
             {canApproveEstimate() && estimate && (
-              <TouchableOpacity
-                style={[s.footerBtn, s.rejectBtn]}
-                onPress={handleReject}
-                disabled={rejecting || saving || approving}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="close-circle-outline" size={18} color={COLORS.danger} />
-                <Text style={s.rejectBtnText}>Reject</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[s.footerBtn, s.approveBtn]}
+                  onPress={handleApprove}
+                  disabled={approving || saving}
+                  activeOpacity={0.85}
+                >
+                  {approving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                  }
+                  <Text style={s.approveBtnText}>
+                    {approving ? 'Approving...' : 'Approve'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.footerBtn, s.rejectBtn]}
+                  onPress={handleReject}
+                  disabled={rejecting || saving || approving}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color={COLORS.danger} />
+                  <Text style={s.rejectBtnText}>Reject</Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
         )}
 
-        {/* Revise — when rejected */}
+        {/* ─────────────────────────────────────────────────────────────────
+            PENDING APPROVAL STATE
+            MECHANIC:   [⏳ Waiting for Approval]   ← full width, disabled
+            OWNER:      [Approve]  [Reject]          ← can act from here too
+            ───────────────────────────────────────────────────────────────── */}
+        {isPendingApproval && (
+          <View style={s.footerBtnRow}>
+
+            {/* Mechanic / Receptionist — read-only, just shows status */}
+            {!canApproveEstimate() && (
+              <View style={[s.footerBtn, s.waitingBtn]}>
+                <Ionicons name="time-outline" size={16} color={COLORS.warning} />
+                <Text style={s.waitingBtnText}>Waiting for Approval</Text>
+              </View>
+            )}
+
+            {/* Owner / Manager — can approve or reject inline */}
+            {canApproveEstimate() && (
+              <>
+                <TouchableOpacity
+                  style={[s.footerBtn, s.approveBtn]}
+                  onPress={handleApprove}
+                  disabled={approving}
+                  activeOpacity={0.85}
+                >
+                  {approving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                  }
+                  <Text style={s.approveBtnText}>
+                    {approving ? 'Approving...' : 'Approve'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.footerBtn, s.rejectBtn]}
+                  onPress={handleReject}
+                  disabled={rejecting || approving}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="close-circle-outline" size={16} color={COLORS.danger} />
+                  <Text style={s.rejectBtnText}>Reject</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
+        {/* ─────────────────────────────────────────────────────────────────
+            REJECTED STATE — mechanic sees rejection reason + revise option
+            ───────────────────────────────────────────────────────────────── */}
         {isRejected && (
           <TouchableOpacity
-            style={[s.footerBtn, s.saveBtn, { alignSelf: 'stretch' }]}
-            onPress={() => {
-              setEstimate(null);
-              setItems([]);
-              setDiscount(0);
-              setNotes('');
-            }}
+            style={[s.footerBtn, s.sendBtn, { flex: 1 }]}
+            onPress={() =>
+              setEstimate(prev => prev ? { ...prev, status: 'revised' } : null)
+            }
             activeOpacity={0.85}
           >
-            <Ionicons name="refresh-outline" size={18} color={COLORS.primary} />
-            <Text style={s.saveBtnText}>Create Revised Estimate</Text>
+            <Ionicons name="refresh-outline" size={16} color="#fff" />
+            <Text style={s.sendBtnText}>Revise & Resubmit</Text>
           </TouchableOpacity>
         )}
 
-        {/* Share buttons — always visible when estimate exists */}
+        {/* Share on WhatsApp — visible when estimate exists (any status) */}
         {estimate && (
           <View style={s.shareRow}>
             <TouchableOpacity
@@ -675,6 +873,8 @@ const s = StyleSheet.create({
   centered:       { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
   loadingText:    { fontSize: FONT.sizes.sm, color: COLORS.textSecondary, marginTop: SPACING.sm },
 
+  pendingBanner:  { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: COLORS.warningLight, borderRadius: RADIUS.md, padding: SPACING.sm, marginBottom: SPACING.sm },
+  pendingText:    { flex: 1, fontSize: FONT.sizes.sm, color: COLORS.warning, fontWeight: '600' },
   rejectedBanner: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: COLORS.dangerLight, borderRadius: RADIUS.md, padding: SPACING.sm, marginBottom: SPACING.sm },
   rejectedText:   { flex: 1, fontSize: FONT.sizes.sm, color: COLORS.danger, fontWeight: '600' },
 
@@ -724,10 +924,14 @@ const s = StyleSheet.create({
   footerBtn:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.xs, paddingVertical: 12, borderRadius: RADIUS.lg },
   saveBtn:        { borderWidth: 1.5, borderColor: COLORS.primary },
   saveBtnText:    { fontSize: FONT.sizes.sm, fontWeight: '700', color: COLORS.primary },
-  approveBtn:     { backgroundColor: COLORS.success },
+  sendBtn:        { flex: 1, backgroundColor: COLORS.primary },
+  sendBtnText:    { fontSize: FONT.sizes.sm, fontWeight: '700', color: '#fff' },
+  approveBtn:     { flex: 1, backgroundColor: COLORS.success },
   approveBtnText: { fontSize: FONT.sizes.sm, fontWeight: '700', color: '#fff' },
-  rejectBtn:      { borderWidth: 1.5, borderColor: COLORS.danger },
+  rejectBtn:      { flex: 1, borderWidth: 1.5, borderColor: COLORS.danger },
   rejectBtnText:  { fontSize: FONT.sizes.sm, fontWeight: '700', color: COLORS.danger },
+  waitingBtn:     { flex: 1, backgroundColor: COLORS.warningLight, borderWidth: 1.5, borderColor: COLORS.warning },
+  waitingBtnText: { fontSize: FONT.sizes.sm, fontWeight: '700', color: COLORS.warning },
   shareRow:       { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.xs },
   whatsappBtn:    { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, backgroundColor: '#25D366', borderRadius: RADIUS.lg, paddingVertical: SPACING.sm },
   whatsappBtnText:{ fontSize: FONT.sizes.sm, fontWeight: '700', color: '#fff' },

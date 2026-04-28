@@ -12,13 +12,14 @@ interface AuthState {
   user: User | null;
   company: Company | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   isHydrated: boolean;
   error: string | null;
 
   // Actions
-  login: (user: User, company: Company | null, token: string) => void;
+  login: (user: User, company: Company | null, token: string, refreshToken?: string) => void;
   logout: () => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -50,6 +51,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       company: null,
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
       isLoading: false,
       isHydrated: false,
@@ -57,11 +59,11 @@ export const useAuthStore = create<AuthState>()(
 
       // ── Actions ──────────────────────────────────────────────────────────
 
-      login: (user, company, token) =>
-        set({ user, company, token, isAuthenticated: true, error: null }),
+      login: (user, company, token, refreshToken) =>
+        set({ user, company, token, refreshToken: refreshToken ?? null, isAuthenticated: true, error: null }),
 
       logout: () =>
-        set({ user: null, company: null, token: null, isAuthenticated: false }),
+        set({ user: null, company: null, token: null, refreshToken: null, isAuthenticated: false }),
 
       setLoading: (isLoading) => set({ isLoading }),
 
@@ -129,6 +131,7 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         company: state.company,
         token: state.token,
+        refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state, error) => {

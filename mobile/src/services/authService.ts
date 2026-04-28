@@ -1,88 +1,68 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import env from '../config/env';
-import { dummyUsers, dummyCompany, DEV_LOGIN_MAP } from '../dummy/users';
+import { authApi } from '../api/authApi';
+import { StorageService } from './storage';
+import { mapApiRole } from '../navigation/roleRouter';
+import { dummyUsers, dummyCompany } from '../dummy/users';
 import type { User, Company } from '../types';
 
-const TOKEN_KEY = 'auth_token';
-const USER_KEY  = 'auth_user';
+// ─── Result type ──────────────────────────────────────────────────────────────
 
 export interface LoginResult {
   token: string;
+  refreshToken: string;
   user: User;
-  company: Company;
+  company: Company | null;
 }
+
+// ─── Service ──────────────────────────────────────────────────────────────────
 
 export const authService = {
 
-  /** POST /auth/login */
+  /**
+   * POST /api/v1/auth/login
+   *
+   * Always calls the real Hana Platform API — never uses dummy data.
+   * Other services respect USE_DUMMY_DATA for their own mocking, but auth
+   * must always go to the real backend so user identity is genuine.
+   */
   async login(identifier: string, password: string): Promise<LoginResult> {
-    if (env.USE_DUMMY_DATA) {
-      const devKey = identifier.toLowerCase() as keyof typeof DEV_LOGIN_MAP;
-      if (DEV_LOGIN_MAP[devKey]) {
-        const user = DEV_LOGIN_MAP[devKey];
-        const result: LoginResult = {
-          token: `dev-token-${user.role.toLowerCase()}`,
-          user,
-          company: dummyCompany,
-        };
-        await AsyncStorage.multiSet([[TOKEN_KEY, result.token], [USER_KEY, JSON.stringify(user)]]);
-        return result;
-      }
-      const user = dummyUsers.find(
-        (u) => (u.email === identifier || u.mobile === identifier) && u.password === password,
-      );
-      if (!user) throw new Error('Invalid credentials');
-      const result: LoginResult = { token: 'dummy-jwt-token', user, company: dummyCompany };
-      await AsyncStorage.multiSet([[TOKEN_KEY, result.token], [USER_KEY, JSON.stringify(user)]]);
-      return result;
-    }
+    const response = await authApi.login(identifier, password);
+    const { access_token, refresh_token, user: hanaUser } = response.data;
 
-    const { data } = await api.post<LoginResult>('/auth/login', { identifier, password });
-    await AsyncStorage.multiSet([[TOKEN_KEY, data.token], [USER_KEY, JSON.stringify(data.user)]]);
-    return data;
+    const legalname = hanaUser.legalname?.trim() || hanaUser.name;
+
+      const user: User = {
+        id:        hanaUser.id,
+        name:      legalname,
+        legalname,
+        mobile:    hanaUser.mobile,
+        email:     hanaUser.email,
+        role:      mapApiRole(hanaUser.roleData?.role ?? hanaUser.role ?? 'mechanic'),
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+
+    await StorageService.setAuthData(access_token, refresh_token, user);
+
+    return { token: access_token, refreshToken: refresh_token, user, company: null };
   },
 
-  /** POST /auth/refresh */
-  async refreshToken(): Promise<string> {
-    if (env.USE_DUMMY_DATA) {
-      const token = (await AsyncStorage.getItem(TOKEN_KEY)) ?? 'dummy-jwt-token';
-      return token;
-    }
-    const { data } = await api.post<{ token: string }>('/auth/refresh');
-    await AsyncStorage.setItem(TOKEN_KEY, data.token);
-    return data.token;
-  },
-
-  /** POST /auth/logout */
+  /** Clear all stored auth data and fire server logout if available */
   async logout(): Promise<void> {
     if (!env.USE_DUMMY_DATA) {
       await api.post('/auth/logout').catch(() => {});
     }
-    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+    await StorageService.clearAuth();
   },
 
-  /** GET /auth/me */
-  async getCurrentUser(): Promise<{ user: User; company: Company }> {
+  /** GET /auth/me — re-validate token and fetch fresh user data */
+  async getCurrentUser(): Promise<{ user: User; company: Company | null }> {
     if (env.USE_DUMMY_DATA) {
-      const raw = await AsyncStorage.getItem(USER_KEY);
-      const user = raw ? JSON.parse(raw) : dummyUsers[0];
+      const user = (await StorageService.getUser()) ?? dummyUsers[0];
       return { user, company: dummyCompany };
     }
     const { data } = await api.get<{ user: User; company: Company }>('/auth/me');
-    return data;
-  },
-
-  /** Validates a stored token — used on app launch */
-  async validateToken(token: string): Promise<{ user: User; company: Company }> {
-    if (env.USE_DUMMY_DATA) {
-      const role = token.replace('dev-token-', '').toUpperCase();
-      const user = dummyUsers.find((u) => u.role === role) ?? dummyUsers[0];
-      return { user, company: dummyCompany };
-    }
-    const { data } = await api.get<{ user: User; company: Company }>('/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
     return data;
   },
 
@@ -93,6 +73,6 @@ export const authService = {
   },
 
   async getStoredToken(): Promise<string | null> {
-    return AsyncStorage.getItem(TOKEN_KEY);
+    return StorageService.getAccessToken();
   },
 };

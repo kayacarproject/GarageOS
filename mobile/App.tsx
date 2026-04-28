@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAppFonts } from './src/hooks/useFonts';
 import { AppNavigator } from './src/navigation/AppNavigator';
+import { AuthProvider } from './src/context/AuthContext';
+import { CustomToast } from './src/components/CustomToast';
+import { toastRef } from './src/utils/toast';
 import { Colors } from './src/constants/colors';
 
-// Keep the splash screen visible while fonts load
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function App() {
@@ -13,7 +16,6 @@ export default function App() {
   const [splashHidden, setSplashHidden] = useState(false);
 
   useEffect(() => {
-    // Hide splash once fonts are ready (or failed — fall back to system fonts)
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync()
         .catch(() => {})
@@ -21,16 +23,15 @@ export default function App() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Safety net: if fonts hang for > 4 seconds, force-show the app anyway
+  // Failsafe: force-show after 4 s so a font hang never freezes the app
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const t = setTimeout(() => {
       SplashScreen.hideAsync().catch(() => {});
       setSplashHidden(true);
     }, 4000);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, []);
 
-  // Block render until splash is ready to hide to prevent flash
   if (!splashHidden && !fontsLoaded && !fontError) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background }}>
@@ -39,5 +40,14 @@ export default function App() {
     );
   }
 
-  return <AppNavigator />;
+  return (
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppNavigator />
+      </AuthProvider>
+
+      {/* Global toast — sits above all navigation; fired via showToast() anywhere */}
+      <CustomToast ref={toastRef} />
+    </SafeAreaProvider>
+  );
 }

@@ -1,11 +1,18 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 import {
-  View, Text, TextInput, StyleSheet,
-  ScrollView, Alert, KeyboardAvoidingView, Platform, TextInput as RNTextInput,
-} from 'react-native';
-import { useMechanicStore } from '../../stores/mechanicStore';
-import { Button } from '../../components/common/Button';
-import { COLORS, SPACING, FONT, RADIUS, SHADOW } from '../../config/theme';
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput as RNTextInput,
+} from "react-native";
+import { useMechanicStore } from "../../stores/mechanicStore";
+import { Button } from "../../components/common/Button";
+import { COLORS, SPACING, FONT, RADIUS, SHADOW } from "../../config/theme";
 
 // ─── Field ────────────────────────────────────────────────────────────────────
 
@@ -17,7 +24,8 @@ const Field: React.FC<{
 }> = ({ label, required, children, error }) => (
   <View style={s.field}>
     <Text style={s.label}>
-      {label}{required && <Text style={s.required}> *</Text>}
+      {label}
+      {required && <Text style={s.required}> *</Text>}
     </Text>
     {children}
     {!!error && <Text style={s.errorText}>{error}</Text>}
@@ -26,23 +34,26 @@ const Field: React.FC<{
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-export const AddMechanicScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+export const AddMechanicScreen: React.FC<{ navigation: any }> = ({
+  navigation,
+}) => {
   const { add } = useMechanicStore();
 
-  const [name, setName]               = useState('');
-  const [phone, setPhone]             = useState('');
-  const [specialization, setSpec]     = useState('');
-  const [saving, setSaving]           = useState(false);
-  const [errors, setErrors]           = useState<{ name?: string; phone?: string }>({});
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [specialization, setSpec] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
 
   const phoneRef = useRef<RNTextInput>(null);
-  const specRef  = useRef<RNTextInput>(null);
+  const specRef = useRef<RNTextInput>(null);
 
   function validate(): boolean {
     const e: typeof errors = {};
-    if (!name.trim())                          e.name  = 'Name is required.';
-    if (!phone.trim())                         e.phone = 'Phone number is required.';
-    else if (!/^\d{10}$/.test(phone.trim()))   e.phone = 'Enter a valid 10-digit phone number.';
+    if (!name.trim()) e.name = "Name is required.";
+    if (!phone.trim()) e.phone = "Phone number is required.";
+    else if (!/^\d{10}$/.test(phone.trim()))
+      e.phone = "Enter a valid 10-digit phone number.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -54,7 +65,10 @@ export const AddMechanicScreen: React.FC<{ navigation: any }> = ({ navigation })
       await add(name.trim(), phone.trim(), specialization.trim() || undefined);
       navigation.goBack();
     } catch (e: any) {
-      Alert.alert('Error', e.message ?? 'Could not add mechanic. Please try again.');
+      Alert.alert(
+        "Error",
+        e.message ?? "Could not add mechanic. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -63,7 +77,7 @@ export const AddMechanicScreen: React.FC<{ navigation: any }> = ({ navigation })
   return (
     <KeyboardAvoidingView
       style={s.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
         style={s.container}
@@ -75,7 +89,10 @@ export const AddMechanicScreen: React.FC<{ navigation: any }> = ({ navigation })
             <TextInput
               style={[s.input, !!errors.name && s.inputError]}
               value={name}
-              onChangeText={t => { setName(t); setErrors(p => ({ ...p, name: undefined })); }}
+              onChangeText={(t) => {
+                setName(t);
+                setErrors((p) => ({ ...p, name: undefined }));
+              }}
               placeholder="e.g. Ramesh Kumar"
               placeholderTextColor={COLORS.textMuted}
               autoCapitalize="words"
@@ -89,7 +106,10 @@ export const AddMechanicScreen: React.FC<{ navigation: any }> = ({ navigation })
               ref={phoneRef}
               style={[s.input, !!errors.phone && s.inputError]}
               value={phone}
-              onChangeText={t => { setPhone(t); setErrors(p => ({ ...p, phone: undefined })); }}
+              onChangeText={(t) => {
+                setPhone(t);
+                setErrors((p) => ({ ...p, phone: undefined }));
+              }}
               placeholder="10-digit mobile number"
               placeholderTextColor={COLORS.textMuted}
               keyboardType="phone-pad"
@@ -133,18 +153,38 @@ export const AddMechanicScreen: React.FC<{ navigation: any }> = ({ navigation })
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  flex:       { flex: 1, backgroundColor: COLORS.background },
-  container:  { flex: 1 },
-  content:    { padding: SPACING.md, paddingBottom: 20 },
+  flex: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1 },
+  content: { padding: SPACING.md, paddingBottom: 20 },
 
-  card:       { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md, ...SHADOW.sm, gap: SPACING.sm },
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    ...SHADOW.sm,
+    gap: SPACING.sm,
+  },
 
-  field:      { gap: 6 },
-  label:      { fontSize: FONT.sizes.sm, fontWeight: '600', color: COLORS.text },
-  required:   { color: COLORS.danger },
-  input:      { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 11, fontSize: FONT.sizes.md, color: COLORS.text, backgroundColor: COLORS.background },
+  field: { gap: 6 },
+  label: { fontSize: FONT.sizes.sm, fontWeight: "600", color: COLORS.text },
+  required: { color: COLORS.danger },
+  input: {
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 11,
+    fontSize: FONT.sizes.md,
+    color: COLORS.text,
+    backgroundColor: COLORS.background,
+  },
   inputError: { borderColor: COLORS.danger },
-  errorText:  { fontSize: FONT.sizes.xs, color: COLORS.danger },
+  errorText: { fontSize: FONT.sizes.xs, color: COLORS.danger },
 
-  footer:     { padding: SPACING.md, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border },
+  footer: {
+    padding: SPACING.md,
+    backgroundColor: COLORS.surface,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
 });

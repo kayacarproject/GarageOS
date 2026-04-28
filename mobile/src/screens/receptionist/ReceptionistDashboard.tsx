@@ -189,7 +189,7 @@ export const ReceptionistDashboard: React.FC<{ navigation: any }> = ({
           </TouchableOpacity>
           <View style={{ flex: 1 ,marginStart:20}}>
             <Text style={s.greeting}>Front Desk 🗓</Text>
-            <Text style={s.name}>{user?.name}</Text>
+            <Text style={s.name}>Welcome, {(user?.legalname ?? user?.name)?.trim() || 'User'}</Text>
             <Text style={s.date}>{dateStr}</Text>
           </View>
           <View style={s.dateBadge}>

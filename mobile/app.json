@@ -49,7 +49,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow GarageOS to access your photos."
+          "photosPermission": "GarageOS needs access to your photo library to upload vehicle and job card photos.",
+          "cameraPermission": "GarageOS needs camera access to capture vehicle and job card photos."
         }
       ],
       "expo-font"
